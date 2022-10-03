@@ -1,18 +1,20 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+from typing import Any, Callable, Optional, Union
+
 import abc
+import datetime
+import hashlib
 import inspect
 import json
-import datetime
 import logging
-import hashlib
 import uuid
-from optparse import OptionParser
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Any, Optional, Type, Union
+from optparse import OptionParser
 
-from scoring import get_score, get_interests
+from scoring import get_interests, get_score
+
 
 SALT = "Otus"
 ADMIN_LOGIN = "admin"
@@ -94,7 +96,7 @@ class FieldTypeError(BaseError):
 
 
 class BaseModel(abc.ABC):
-    root_validate = None
+    root_validate: Optional[Callable] = None
 
     def __init__(self, **data: Any) -> None:
         error = False
@@ -124,11 +126,11 @@ class BaseModel(abc.ABC):
     def get_context(self):
         raise NotImplementedError
 
-    def _validate_model(self, input_data: Union[dict, str, Any]):
+    def _validate_model(self, input_data: dict):
         """ Проверяет что есть все обязательные поля, есть значения в полях которые не могут быть пустыми.
             Если значение поля не прошло валидацию, добавляет информацию об этом в ошибки.
         """
-        errors = []
+        errors: list[Union[MissingError, RequiredError, FieldTypeError]] = []
         values = {}
         fields_set = set()
         for name, field in self.__fields__:
@@ -218,11 +220,12 @@ class GenderField(BaseField):
         return value in [UNKNOWN, MALE, FEMALE]
 
 
-class ClientIDsField(BaseField, list):
+class ClientIDsField(BaseField, list):  # type: ignore
     def is_valid(self, value) -> bool:
         # Значение является не пустым списком, каждый элемент которого является целым числом
         if value and isinstance(value, list):
             return all([self.is_integer(i) for i in value])
+        return False
 
     @staticmethod
     def is_integer(obj: Union[str, int]) -> bool:
@@ -294,7 +297,7 @@ def get_arguments_and_error(data: MethodRequest):
         'clients_interests': ClientsInterestsRequest
     }
     data_arguments = data.arguments if isinstance(data.arguments, dict) else {}
-    arguments = arguments_class[data.method](**data_arguments)
+    arguments = arguments_class[data.method](**data_arguments)  # type: ignore
     error = arguments.error
     return arguments, error
 
@@ -338,7 +341,7 @@ def method_handler(request: dict[str, Any], ctx: dict[str, Any], store: Optional
         return get_error(FORBIDDEN)
 
     try:
-        response, error = available_methods[data.method](data, ctx, store)
+        response, error = available_methods[data.method](data, ctx, store)  # type: ignore
     except KeyError:
         return get_error(BAD_REQUEST)
 
@@ -362,7 +365,7 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
         try:
             data_string = self.rfile.read(int(self.headers['Content-Length']))
             request = json.loads(data_string)
-        except:
+        except Exception:
             code = BAD_REQUEST
 
         if request:
