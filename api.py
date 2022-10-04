@@ -14,6 +14,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from optparse import OptionParser
 
 from scoring import get_interests, get_score
+from store import RedisStore, StoreKeyNotFound
 
 
 SALT = "Otus"
@@ -315,7 +316,11 @@ def online_score(data: MethodRequest, ctx: dict[str, Any], store: Optional[str])
 def clients_interests(data: MethodRequest, ctx: dict[str, Any], store: Optional[str]):
     arguments, error = get_arguments_and_error(data)
     update_context(ctx, arguments)
-    interests = {client_id: get_interests(store, client_id) for client_id in arguments.client_ids}
+    try:
+        interests = {client_id: get_interests(store, client_id) for client_id in arguments.client_ids}
+    except StoreKeyNotFound as e:
+        logging.error("Не удалось получить данные для одного или нескольких client_id %s" % arguments.client_ids)
+        return [], e
     return interests, error
 
 
@@ -352,7 +357,7 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
     router = {
         "method": method_handler
     }
-    store = None
+    store = RedisStore()
 
     @staticmethod
     def get_request_id(headers):
