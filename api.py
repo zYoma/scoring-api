@@ -74,7 +74,8 @@ class ValidationError(ValidationBaseError):
 
 class ConstrainError(ValidationBaseError):
     def get_message(self):
-        return f'Должна присутствовать хотя бы одна пара полей: {REQUIRED_PAIR}'
+        return 'Должна присутствовать хотя бы одна пара полей: ' \
+               '[{\'last_name\', \'first_name\'}, {\'birthday\', \'gender\'}, {\'email\', \'phone\'}]'
 
 
 class BaseError(abc.ABC):
@@ -267,7 +268,7 @@ class MethodRequest(BaseModel):
     login = CharField(required=True, nullable=True)
     token = CharField(required=True, nullable=True)
     arguments = ArgumentsField(required=True, nullable=True)
-    method = CharField(required=True, nullable=False)
+    method = CharField(required=True, nullable=True)
 
     @property
     def is_admin(self):
@@ -305,12 +306,14 @@ def get_arguments_and_error(data: MethodRequest):
 
 def online_score(data: MethodRequest, ctx: dict[str, Any], store: Optional[str]):
     arguments, error = get_arguments_and_error(data)
-    update_context(ctx, arguments)
+    if error:
+        return {}, error
 
+    update_context(ctx, arguments)
     score = ADMIN_SCORE
     if data.login != ADMIN_LOGIN:
         score = get_score(store, **{k: v for k, v in arguments.__dict__.items() if k in arguments.__fields__})
-    return {"score": score}, error
+    return {"score": score}, None
 
 
 def clients_interests(data: MethodRequest, ctx: dict[str, Any], store: Optional[str]):

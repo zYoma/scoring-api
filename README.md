@@ -28,6 +28,7 @@ poetry install
 ``` 
 mypy .
 flake8
+pytest
 ``` 
 
 ### Использование

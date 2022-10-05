@@ -1,13 +1,14 @@
 from typing import Type
 
+import os
 import redis
-from abc import ABC
 import time
+from abc import ABC
 from logging import getLogger
 
 
 logger = getLogger()
-REDIS_DSN = 'redis://127.0.0.1:6379/0'
+REDIS_DSN = os.environ.get('REDIS_DSN', 'redis://127.0.0.1:6379/0')
 MAX_RETRIES = 3
 CONNECT_TIMEOUT = 2
 
