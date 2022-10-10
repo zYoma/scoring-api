@@ -53,6 +53,9 @@ class ValidationBaseError(Exception, abc.ABC):
     def get_message(self):
         raise NotImplementedError
 
+    def __len__(self):
+        return True
+
 
 class ValidationError(ValidationBaseError):
     def __init__(self, errors):
@@ -240,16 +243,7 @@ class ClientsInterestsRequest(BaseModel):
         return {"nclients": len(self.client_ids)}
 
 
-def validate_on_line_score_fields(cls, fields_set: set[str]) -> bool:
-    """Проверяет что есть хотя бы одна пара полей из REQUIRED_PAIR.
-       Проверка реализовано через вхождение подмножества.
-    """
-    return True in [pair_set.issubset(fields_set) for pair_set in REQUIRED_PAIR]
-
-
 class OnlineScoreRequest(BaseModel):
-    root_validate = validate_on_line_score_fields
-
     first_name = CharField(required=False, nullable=True)
     last_name = CharField(required=False, nullable=True)
     email = EmailField(required=False, nullable=True)
@@ -259,6 +253,17 @@ class OnlineScoreRequest(BaseModel):
 
     def get_context(self):
         return {"has": self.__fields__}
+
+    def __init__(self, **data: Any):
+        self.root_validate = self.validate_on_line_score_fields
+        super().__init__(**data)
+
+    @staticmethod
+    def validate_on_line_score_fields(fields_set: set[str]) -> bool:
+        """Проверяет что есть хотя бы одна пара полей из REQUIRED_PAIR.
+           Проверка реализовано через вхождение подмножества.
+        """
+        return True in [pair_set.issubset(fields_set) for pair_set in REQUIRED_PAIR]
 
 
 class MethodRequest(BaseModel):
@@ -319,33 +324,38 @@ def clients_interests(data: MethodRequest, ctx: dict[str, Any], store: Optional[
     return interests, error
 
 
-def get_error(error_code: int, message: str = None) -> tuple[str, int]:
-    if message:
-        return message, error_code
-    return ERRORS[error_code], error_code
+def get_error_by_code(
+        error_code: int,
+        error: ValidationBaseError = None
+) -> tuple[Union[str, ValidationBaseError], int]:
+    return (error, error_code) if error else (ERRORS.get(error_code, "Unknown Error"), error_code)
 
 
-def method_handler(request: dict[str, Any], ctx: dict[str, Any], store: Optional[str]) -> tuple[str, int]:
+def method_handler(
+        request: dict[str, Any],
+        ctx: dict[str, Any],
+        store: Optional[str]
+) -> tuple[Union[str, ValidationBaseError], int]:
     available_methods = {
         'online_score': online_score,
         'clients_interests': clients_interests
     }
     body = request.get('body')
     if not body:
-        return get_error(INVALID_REQUEST)
+        return get_error_by_code(INVALID_REQUEST)
 
     data = MethodRequest(**body)
     if error := data.error:
-        return get_error(INVALID_REQUEST, error.get_message())
+        return get_error_by_code(INVALID_REQUEST, error)
     if not check_auth(data):
-        return get_error(FORBIDDEN)
+        return get_error_by_code(FORBIDDEN)
 
     try:
         response, error = available_methods[data.method](data, ctx, store)  # type: ignore
     except KeyError:
-        return get_error(BAD_REQUEST)
+        return get_error_by_code(BAD_REQUEST)
 
-    return (response, OK) if not error else get_error(INVALID_REQUEST, error.get_message())
+    return (response, OK) if not error else get_error_by_code(INVALID_REQUEST, error)
 
 
 class MainHTTPHandler(BaseHTTPRequestHandler):
@@ -374,10 +384,10 @@ class MainHTTPHandler(BaseHTTPRequestHandler):
             if path in self.router:
                 try:
                     response, code = self.router[path]({"body": request, "headers": self.headers}, context, self.store)
-                except (ValidationError, ConstrainError) as e:
-                    logging.exception("Validation error: %s" % e)
-                    code = INVALID_REQUEST
-                    response = e.message
+                    if isinstance(response, ValidationBaseError):
+                        logging.exception("Validation error: %s" % response)
+                        code = INVALID_REQUEST
+                        response = response.message
                 except Exception as e:
                     logging.exception("Unexpected error: %s" % e)
                     code = INTERNAL_ERROR
